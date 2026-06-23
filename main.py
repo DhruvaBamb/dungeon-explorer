@@ -6,6 +6,7 @@ import os
 import subprocess
 import numpy as np
 import cv2
+import signal
 from game import start_game, move_player, update
 
 TILE_PATH = os.path.split(__file__)[0] + "/tiles"
@@ -26,6 +27,20 @@ MOVES = {
 #
 SCREEN_SIZE_X, SCREEN_SIZE_Y = 840, 640
 TILE_SIZE = 64
+
+
+def mouse_callback(event, x, y, flags, param):
+    game, music_proc = param
+    if event == cv2.EVENT_LBUTTONDOWN:
+        if 680 <= x <= 800 and 550 <= y <= 600:
+            if game.status == "running":
+                game.status = "paused"
+                if music_proc:
+                    music_proc.send_signal(signal.SIGSTOP)
+            elif game.status == "paused":
+                game.status = "running"
+                if music_proc:
+                    music_proc.send_signal(signal.SIGCONT)
 
 
 def read_image(filename: str) -> np.ndarray:
@@ -180,6 +195,15 @@ def draw(game, images, moves):
         x = i % 2  # modulo: remainder of an integer division
         draw_tile(frame, xbase=660, ybase=96, x=x, y=y, image=images[item])
 
+    # Draw Play/Pause button
+    button_color = (0, 200, 0) if game.status == "paused" else (0, 0, 200)
+    button_text = "PLAY" if game.status == "paused" else "PAUSE"
+    cv2.rectangle(frame, (680, 550), (800, 600), button_color, -1)
+    cv2.putText(frame, button_text, (700, 582), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+    if game.status == "paused":
+        cv2.putText(frame, "PAUSED", (200, 300), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 5)
+
     # draw everything that moves
     for m in moves:
         draw_move(frame=frame, move=m, images=images, camera_x=camera_x, camera_y=camera_y)
@@ -302,7 +326,10 @@ def main():
     queued_move = None
     moves = []
 
-    while game.status in ["running", "shop"]:
+    cv2.namedWindow(GAME_TITLE)
+    cv2.setMouseCallback(GAME_TITLE, mouse_callback, param=(game, music_proc))
+
+    while game.status in ["running", "shop", "paused"]:
         if game.status == "running":
             draw(game, images, moves)
             moves = clean_moves(game, moves)
@@ -327,6 +354,12 @@ def main():
             elif key == 27:  # ESC
                 game.status = "running"
             elif char == "q":
+                game.status = "exited"
+        elif game.status == "paused":
+            draw(game, images, moves)
+            key = cv2.waitKey(1) & 0xFF
+            char = chr(key) if key < 256 else ""
+            if char == "q":
                 game.status = "exited"
 
     cv2.destroyAllWindows()
